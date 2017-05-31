@@ -1,0 +1,21 @@
+# 需要去掉各种数据文件
+*.txt
+*.gz
+*.dict
+
+# 需要去掉各种模型文件
+*.data
+*.h5
+*.yml
+
+# 需要去掉各种结果
+*.log
+
+# 去掉各种 py 临时文件
+*~
+
+# 去掉模型文件，语料文件
+topic_model/model
+topic_model/query
+topic_model/rawdata
+topic_model/zip_result
