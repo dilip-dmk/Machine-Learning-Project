@@ -15,18 +15,22 @@ documents = []
 hidden_vectors = []
 
 # 不同业务需要配置不同的词典，效果比较好
+# 在停止词中添加的内容，同样需要添加到对应的词典中，这样才能分词出来
 
-user_dict = "dict/nanfang_dict.txt"
+user_dict = "dict/zhaohang_dict.txt"
+#user_dict = "dict/nanfang_dict.txt"
 #user_dict = "dict/pinduoduo_dict.txt"
 
 
-raw_query = "query/miya.txt" # 密芽 FAQ
+raw_query = "query/query_5" # 招行
+# raw_query = "query/miya.txt" # 密芽 FAQ
 # raw_query = "query/clear2" # 有用分期
 # raw_query = "query/query_1" # 南方
-hidden_vector = "query/nanfang.other_query.hidden_vec" # 杨老师给的南方的向量，配合 query_1
+# hidden_vector = "query/nanfang.other_query.hidden_vec" # 杨老师给的南方的向量，配合 query_1
 # raw_query = "query/query_9" # 拼多多
 
-dict_path = "query/miya.dict"
+dict_path = "query/zhaohang.dict"
+#dict_path = "query/miya.dict"
 #dict_path = "query/fenqi.dict"
 #dict_path = "query/nanfang.dict"
 #dict_path = "query/pinduoduo.dict"
@@ -52,7 +56,7 @@ num_topn = 40 # get topic terms 的词个数
 final_a = 200 # topic 评分中 doc 的系数
 final_b = 100 # topic 评分中 word 的系数
 min_word_count = 15 # 分期的数据人名较多，过滤掉
-max_sentence_length = 80
+max_sentence_length = 400 # 这个值如果数值大
 show_count = 2000 # 处理多少条记录显示一次进度
 
 # 保证每次结果一致
@@ -555,17 +559,24 @@ def show_lsi_document():
     #y_pred = affinity_propagation.labels_.astype(np.int)
 
     # 各个类别的结果
-    topic_result = [[] for i in range(num_topic)]
-    for i in range (len(texts)):
-        topic_result[y_pred[i]].append(texts[i])
-    for i in range (len(topic_result)):
-        filepath = "%stopic%d.txt" % (lsi_result_dir, i)
-        print "写入类别 %d 至 %s" % (i, filepath)
-        with codecs.open(filepath, "w+", "utf-8") as f:
-            f.write("类别 %d 的记录个数 %d\n" % (i, len(topic_result[i])))
-            for line in topic_result[i]:
-                f.write("".join(line)+"\n")
-    print "LSI 结果处理完成"
+    # 也写入到一个统一的文件中
+    resultpath = "%sresult_all.txt" % lsi_result_dir
+    with codecs.open(resultpath, "w+", "utf-8") as r:
+        topic_result = [[] for i in range(num_topic)]
+        for i in range (len(texts)):
+            topic_result[y_pred[i]].append(texts[i])
+        for i in range (len(topic_result)):
+            filepath = "%stopic%d.txt" % (lsi_result_dir, i)
+            print "写入类别 %d 至 %s" % (i, filepath)
+            with codecs.open(filepath, "w+", "utf-8") as f:
+                r.write("类别 %d 的记录个数 %d\n" % (i, len(topic_result[i])))
+                f.write("类别 %d 的记录个数 %d\n" % (i, len(topic_result[i])))
+                for line in topic_result[i]:
+                    f.write("".join(line)+"\n")
+                    r.write("".join(line)+"\n")
+                # 总文件加个分隔符
+                r.write("===============================================\n") 
+        print "LSI 结果处理完成"
 
 def cluster_query(method):
     # 用来聚类杨老师那边给出的数据

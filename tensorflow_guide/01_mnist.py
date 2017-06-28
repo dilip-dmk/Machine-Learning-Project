@@ -212,28 +212,24 @@ fc2_biases = tf.Variable(tf.constant(0.1, shape=[NUM_LABELS]))
 
 print('变量设置完毕')
 
-'''
-Now that we've defined the variables to be trained, we're ready to wire them 
-together into a TensorFlow graph.
-
-We'll define a helper to do this, model, which will return copies of the graph suitable 
-for training and testing. Note the train argument, which controls whether or not dropout 
-is used in the hidden layer. (We want to use dropout only during training.)
-'''
+# 定义好了各种需要训练的变量，我们可以在 TensorFlow 图中把这些变量连起来了
+# 这里我们用一个函数来返回我们需要的 tf graph，这里有一个参数来控制是训练还是其他
+# 如果是训练，我们需要使用 dropout
 
 def model(data, train=False):
-    """The Model definition."""
-    # 2D convolution, with 'SAME' padding (i.e. the output feature map has
-    # the same size as the input). Note that {strides} is a 4D array whose
-    # shape matches the data layout: [image index, y, x, depth].
+    """模型定义"""
+    # 2D 卷积，使用相同 padding，意思是输入的 feature 大小和输出的一致，
+    # strides 是一个四维数组 [image index, y, x, depth]
     conv = tf.nn.conv2d(data,
                         conv1_weights,
                         strides=[1, 1, 1, 1],
                         padding='SAME')
 
+    # 对卷积和偏置做 ReLU 操作
     # Bias and rectified linear non-linearity.
     relu = tf.nn.relu(tf.nn.bias_add(conv, conv1_biases))
 
+    # 池化，这里我们的 pooling window 是 2，每个 stride 是 2
     # Max pooling. The kernel size spec ksize also follows the layout of
     # the data. Here we have a pooling window of 2, and a stride of 2.
     pool = tf.nn.max_pool(relu,
@@ -250,8 +246,7 @@ def model(data, train=False):
                           strides=[1, 2, 2, 1],
                           padding='SAME')
 
-    # Reshape the feature map cuboid into a 2D matrix to feed it to the
-    # fully connected layers.
+    # 把 feature map 转为 2D 矩阵，并传给全连接网络
     pool_shape = pool.get_shape().as_list()
     reshape = tf.reshape(
         pool,
@@ -267,26 +262,19 @@ def model(data, train=False):
         hidden = tf.nn.dropout(hidden, 0.5, seed=SEED)
     return tf.matmul(hidden, fc2_weights) + fc2_biases
 
-'''
-Having defined the basic structure of the graph, we're ready to stamp out 
-multiple copies for training, testing, and validation.
+# 定义了图的基本结构，我们就可以分别为 训练、测试和验证来提取模型了（也会根据不同的类型做一些自定义）
+# train_prediction 保存训练的图，使用 cross-entropy loss 和 weight regularization
+# 我们也会在训练的过程中调整学习率（通过 exponential_decay 操作来完成，会使用 MomentumOptimizer）
 
-Here, we'll do some customizations depending on which graph we're constructing. 
-train_prediction holds the training graph, for which we use cross-entropy 
-loss and weight regularization. We'll adjust the learning rate during training 
--- that's handled by the exponential_decay operation, which is itself an argument 
-to the MomentumOptimizer that performs the actual training.
+# 验证和测试的图比较简单，我们只需要使用验证和测试集作为输入，用 softmax 分类器作为输出
 
-The vaildation and prediction graphs are much simpler the generate -- we need 
-only create copies of the model with the validation and test inputs and a 
-softmax classifier as the output.
-'''
-
+# 训练的计算
 # Training computation: logits + cross-entropy loss.
 logits = model(train_data_node, True)
 loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
   labels=train_labels_node, logits=logits))
 
+# L2 正则化
 # L2 regularization for the fully connected parameters.
 regularizers = (tf.nn.l2_loss(fc1_weights) + tf.nn.l2_loss(fc1_biases) +
                 tf.nn.l2_loss(fc2_weights) + tf.nn.l2_loss(fc2_biases))
@@ -314,43 +302,26 @@ train_prediction = tf.nn.softmax(logits)
 validation_prediction = tf.nn.softmax(model(validation_data_node))
 test_prediction = tf.nn.softmax(model(test_data_node))
 
-'''
-Now that we have the training, test, and validation graphs, we're ready to 
-actually go through the training loop and periodically evaluate loss and error.
+# 准备好了训练、测试和验证的模型之后，我们就可以来真正执行训练了。
+# 所有的操作都需要在 session 中，在 python 中像是
+# with tf.Session() as s:
+# ...training / test / evaluation loop...
 
-All of these operations take place in the context of a session. In Python, 
-we'd write something like:
+# 但是我们这里想要保持 session 方便我们去探索训练的过程，使用 InteractiveSession
 
-with tf.Session() as s:
-  ...training / test / evaluation loop...
-
-But, here, we'll want to keep the session open so we can poke at values as we 
-work out the details of training. The TensorFlow API includes a function for 
-this, InteractiveSession.
-
-We'll start by creating a session and initializing the varibles we defined above.
-'''
-
-# Create a new interactive session that we'll use in
-# subsequent code cells.
+# 我们先创建一个 session 并初始化我们刚才定义的变量
 s = tf.InteractiveSession()
 
-# Use our newly created session as the default for 
-# subsequent operations.
+# Use our newly created session as the default for subsequent operations.
 s.as_default()
 
-# Initialize all the variables we defined above.
+# 初始化刚才定义的变量
 tf.global_variables_initializer().run()
 
-'''
-Now we're ready to perform operations on the graph. Let's start with one round 
-of training. We're going to organize our training steps into batches for 
-efficiency; i.e., training using a small set of examples at each step rather 
-than a single example.
-'''
-
+# 我们现在可以开始训练了，这里我们用 minibatch 的方法（而不是一次只训练一个样本）
 BATCH_SIZE = 60
 
+# 提取第一个 batch 的数据和标签
 # Grab the first BATCH_SIZE examples and labels.
 batch_data = train_data[:BATCH_SIZE, :, :, :]
 batch_labels = train_labels[:BATCH_SIZE]
