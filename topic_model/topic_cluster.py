@@ -16,11 +16,13 @@ hidden_vectors = []
 
 # 不同业务需要配置不同的词典，效果比较好
 # 在停止词中添加的内容，同样需要添加到对应的词典中，这样才能分词出来
+# 更新词表后，需要重新分词
 
 user_dict = "dict/zhaohang_dict.txt"
 #user_dict = "dict/nanfang_dict.txt"
 #user_dict = "dict/pinduoduo_dict.txt"
 
+word_freq_file = "stat/word_freq.txt" # 词频统计
 
 raw_query = "query/query_5" # 招行
 # raw_query = "query/miya.txt" # 密芽 FAQ
@@ -35,7 +37,7 @@ dict_path = "query/zhaohang.dict"
 #dict_path = "query/nanfang.dict"
 #dict_path = "query/pinduoduo.dict"
 
-num_topic = 500
+num_topic = 800
 
 topic_dict_path = "query/topic%d.dict"
 tokenized_query = "query/tokenized_query"
@@ -635,6 +637,37 @@ def cluster_query(method):
                 f.write(line)
     print "聚类结果处理完成"
 
+# 这里最好需要进行一步 dos2unix filename 转换换行符
+def word_freq():
+    total = len(documents)
+    print "统计 %d 条数据的词频" % total
+    t0 = datetime.datetime.now()
+    word_dict = {} 
+    i = 0
+    word_count = 0
+    for doc in documents:
+        if i % 5000 == 0:
+            print "正在处理第 %d/%d 行" % (i, total)
+        i += 1
+        words = doc.split(' ')
+        for word in words:
+            word_count += 1 # 统计总词数
+            if word not in word_dict: 
+                word_dict[word] = 1  
+            else:  
+                word_dict[word] += 1
+        
+    with codecs.open(word_freq_file, "w", "utf-8") as f:
+        f.write("总词语个数 %d\n------------------\n" % word_count)
+        sorted_list = sorted(word_dict.items(), key=lambda item:-item[1])
+        for item in sorted_list:
+            # \r 就是 ^M 就是 windows 的换行符
+            if item == ' ' or item[0] == '\n' or item[0] == '\t' or item[0] == '\r':
+                continue
+            f.write("%s\t%d\n" % (item[0], item[1]))
+    t1 = datetime.datetime.now()
+    print "词频统计完成，共耗时", t1-t0
+
 def help():
     print "用户问句聚类测试"
     print "用法 python topic_cluster.py dict|tlda|tlsi|slda|slsi|kmeans|ap|help"
@@ -645,6 +678,7 @@ def help():
     print "slsi - 统计 LSI 聚类出来的 topic 并保存在 %s 中" % lsi_result_dir
     print "kmeans -  利用 Kmeans 聚类结果并保存在 %s 中" % kmeans_result_dir
     print "ap - 利用 AP 聚类结果并保存在 %s 中" % ap_result_dir
+    print "wordfreq - 统计词频并保存在 %s 中" % word_freq_file
 
 if __name__=="__main__":
     if len(argv) != 2:
@@ -671,6 +705,9 @@ if __name__=="__main__":
         cluster_query(argv[1])
     elif (argv[1] == "help"):
         help()
+    elif (argv[1] == "wordfreq"):
+        load_tokenized_query()
+        word_freq()
     else:
         print "未知命令"
         help()
