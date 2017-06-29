@@ -6,7 +6,7 @@ from sklearn.preprocessing import StandardScaler
 from collections import defaultdict
 from scipy import *  
 from sys import argv
-import jieba, codecs, datetime, time
+import jieba, codecs, datetime, time, re
 import sys 
 reload(sys) # Python2.5 初始化后会删除 sys.setdefaultencoding 这个方法，我们需要重新载入 
 sys.setdefaultencoding('utf-8') 
@@ -17,6 +17,9 @@ hidden_vectors = []
 # 不同业务需要配置不同的词典，效果比较好
 # 在停止词中添加的内容，同样需要添加到对应的词典中，这样才能分词出来
 # 更新词表后，需要重新分词
+
+query_answer_rawdata = "query/xiaomi_201612.txt" # 用来处理问答对的原始数据
+query_answer_result = "qa/result.txt" # 处理后的问答对
 
 user_dict = "dict/zhaohang_dict.txt"
 #user_dict = "dict/nanfang_dict.txt"
@@ -64,6 +67,9 @@ show_count = 2000 # 处理多少条记录显示一次进度
 # 保证每次结果一致
 FIXED_SEED = 44 
 np.random.seed(FIXED_SEED)
+
+jieba.load_userdict(user_dict)
+time.sleep(5)
 
 # KL 散度
 # 需要传入俩 numpy array
@@ -668,6 +674,103 @@ def word_freq():
     t1 = datetime.datetime.now()
     print "词频统计完成，共耗时", t1-t0
 
+def parse_query_answer():
+    print "处理问答对，数据源 %s" % query_answer_rawdata
+    count = 0
+    step = 0
+    question = ""
+    answer = ""
+    result = []
+    t0 = datetime.datetime.now()
+    with open(query_answer_rawdata) as fr:
+        for line in fr:
+            arr = line.split('\t')
+            # 如果分隔后长度不为 5，那么说明是上一句中有换行
+            # 则直接根据当前所属状态添加到对应的句子中
+
+            # step 0 表示初始状态，即用户没有发问，系统没有作答
+            # 这时只有遇到用户问句，才进入下一阶段
+            if step == 0:
+                if arr[2] != '1':
+                    continue
+                # 进入这里表示开始用户问句
+                question = arr[4][:-1] # -1 去掉换行符
+                step = 1 # 表示进入 step 1，用户问句阶段
+            # step 1 表示用户问句状态，如果下一句还是用户问句，那么直接叠加到 question
+            # 如果下一句是客服回答（非机器人回答），那么进入 step 2
+            elif step == 1:
+                if len(arr) < 5:
+                    question += line[:-1].strip()
+                    continue
+
+                if arr[2] == '1': # 如果这一句还是用户问句
+                    question += " " + arr[4][:-1]
+                elif arr[2] == '2' and arr[3] != 'System' and arr[4][0:4] != "null": 
+                    # 如果是客服回答（并满足过滤条件），则加入 answer，并进入 step 2
+                    answer = arr[4][:-1]
+                    step = 2
+                elif arr[2] == '3':
+                    # 如果是系统回答，则需要过滤掉全部内容，包括跨行的，进入另外的状态
+                    step = 9
+            # step 2 表示客服回答状态，如果下一句还是客服回答，那么直接叠加
+            # 如果下一句是用户问句，则认为一个问答对已经完成，添加到要写入的数据中，并恢复初始状态
+            elif step == 2:
+                if len(arr) < 5:
+                    answer += line[:-1].strip()
+                    continue
+                if arr[2] == '2' and arr[3] != 'System' and arr[4][0:4] != "null":
+                    answer += " " + arr[4][:-1]
+                if arr[2] == '1':
+                    # 先用目前的问答对拼接成问句（需要分词）
+                    qarr = jieba.cut(question)  # 默认是精确模式
+                    aarr = jieba.cut(answer)
+                    content = " ".join(qarr) + "##" + " ".join(aarr)
+                    # 去掉特殊符号
+                    content = content.replace("\n", ";")
+                    content = content.replace("\r", "")
+                    # 加入到数组中，等待最后写入
+                    result.append(content)
+                    count = count + 1
+                    if count % 1000 == 0:
+                        print "已处理 %d 个问答对" % count
+                    # 恢复到 step 1
+                    question = arr[4][:-1] # -1 去掉换行符
+                    step = 1 # 表示进入 step 1，用户问句阶段
+            elif step == 9:
+                if len(arr) < 5:
+                    continue
+
+                if arr[2] == '2' and arr[3] != 'System' and arr[4][0:4] != "null":
+                    answer = " " + arr[4][:-1]
+                    step = 2 # 进入答案模式
+                if arr[2] == '1':
+                    question = arr[4][:-1] # -1 去掉换行符
+                    step = 1 # 表示进入 step 1，用户问句阶段
+    
+    print "正在写入结果到 %s" % query_answer_result
+    with codecs.open(query_answer_result, "w", "utf-8") as f:
+        for line in result:
+            try:
+                f.write("%s\n" % line)
+            except :
+                pass
+    t1 = datetime.datetime.now()
+    print "共 %d 条问答对" % count
+    print "问答对完成，共耗时", t1-t0
+
+
+
+emoji_pattern = re.compile(
+    u"(\ud83d[\ude00-\ude4f])|"  # emoticons
+    u"(\ud83c[\udf00-\uffff])|"  # symbols & pictographs (1 of 2)
+    u"(\ud83d[\u0000-\uddff])|"  # symbols & pictographs (2 of 2)
+    u"(\ud83d[\ude80-\udeff])|"  # transport & map symbols
+    u"(\ud83c[\udde0-\uddff])"  # flags (iOS)
+    "+", flags=re.UNICODE)
+
+def remove_emoji(text):
+    return emoji_pattern.sub(r'', text)
+
 def help():
     print "用户问句聚类测试"
     print "用法 python topic_cluster.py dict|tlda|tlsi|slda|slsi|kmeans|ap|help"
@@ -679,6 +782,7 @@ def help():
     print "kmeans -  利用 Kmeans 聚类结果并保存在 %s 中" % kmeans_result_dir
     print "ap - 利用 AP 聚类结果并保存在 %s 中" % ap_result_dir
     print "wordfreq - 统计词频并保存在 %s 中" % word_freq_file
+    print "qa - 把 %s 中的数据处理成问答对并保存在 %s 中" % (query_answer_rawdata, query_answer_result)
 
 if __name__=="__main__":
     if len(argv) != 2:
@@ -708,6 +812,8 @@ if __name__=="__main__":
     elif (argv[1] == "wordfreq"):
         load_tokenized_query()
         word_freq()
+    elif (argv[1] == "qa"):
+        parse_query_answer()
     else:
         print "未知命令"
         help()
