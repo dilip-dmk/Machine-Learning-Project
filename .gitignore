@@ -13,9 +13,13 @@
 
 # 去掉各种 py 临时文件
 *~
+*.pyc
 
 # 去掉模型文件，语料文件
 topic_model/model
 topic_model/query
 topic_model/rawdata
 topic_model/zip_result
+
+# 去掉 seq2bow 的数据文件
+seq2bow_task/seq2bow/data
